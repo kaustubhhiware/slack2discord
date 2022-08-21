@@ -14,10 +14,13 @@ Migrate entire slack channels to discord, with thread support.
 ## Usage
 
 1. Create a slack export for your workspace. [Slack's official documentation](https://slack.com/help/articles/201658943-Export-your-workspace-data) is simple to follow.
-2. Create a Discord bot. Explained [below](#creating-a-discord-bot).
+2. Create a Discord bot. Explained [below](#creating-a-discord-bot). You'll get a token here to use later.
 3. Copying over users and channel structure.
+
     a. Make all channels on Discord, as they were on Slack. This is useful for cross-referencing later.
+
     b. Invite all users from Slack to Discord, maintaining the names.
+
 4. Install dependencies.
 ```
 pip3 install -r requirements.txt
@@ -60,6 +63,11 @@ You can import multiple slack channels into one discord channel.
 s2d!migrate path/to/extracted/slack/export channel1 channel 2
 ```
 
+The available commands are visible with a help command.
+```
+s2d!help
+```
+
 ### Test
 **ToDo** You can execute a test run by creating a test channel on discord, and using the `sample` directory as an example.
 ```
@@ -81,10 +89,15 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 2. Add an app icon, because this icon would appear when the bot posts all the messages.
 3. On the left side panel, let's head to `Bot` section. Hit `Add Bot`.
 4. On the Bot page, set an icon and the username again. Turn on the following toggles:
+
     i. Public bot.
+
     ii. Presence intent.
+
     iii. Server members intent.
+
     iv. Message content intent.
+
 5. Under the `Bot permissions` box, select `Send Messages` permission.
 6. Below the username, Click `Reset Token`. Copy this token, you're going to use this later.
 7. On the left side panel, Head to `OAuth2 > URL Generator`. Select `bot` scope, and then `Send Messages`. Copy the URL generated at the bottom.
@@ -95,7 +108,6 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 
 ## ToDo
 
-- [ ] Read env variable for token
 - [ ] Threads
 - [ ] Multi-day threads
 - [ ] Test data
