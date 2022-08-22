@@ -14,19 +14,19 @@ TOKEN_VAR = "S2DTOKEN"
 BOT_PREFIX = "s2d!"
 
 class Message:
-    def __init__(self, timestr, text, user):
+    def __init__(self, timestr, text, username):
         self.timestr = timestr
         self.text = text
-        self.user = user # user id, not the display name
+        self.username = username
 
     def __repr__(self):
-        return f"**{self.user}** *{self.timestr}*\n{self.text}"
+        return f"**{self.username}** *{self.timestr}*\n{self.text}"
 
 
 class Thread:
-    def __init__(self, timestamp, text, user, replyTimes):
-        self.timestamp = timestamp
-        self.message = Message(timestamp, text, user)
+    def __init__(self, timestamp, text, username, replyTimes):
+        self.timestamp = timestamp # mostly for debugging
+        self.message = Message(timestamp, text, username)
         self.replyTimes = replyTimes
         self.isReply = False
         # ToDo: emojis - need to have all slackmojis in discord
@@ -42,6 +42,7 @@ class Thread:
 def format_text(msg, users, channels):
     '''
     add channel, user references
+    # ToDo: Format links, in lines, &&, > sign
     '''
     for user_id, name in users.items():
         msg = msg.replace(f"<@{user_id}>", f"@{name}")
@@ -52,12 +53,11 @@ def format_text(msg, users, channels):
 
 def build_msg_dir(fpaths, users, channels):
     '''
-    returned object
-    Dict of timestamp to Thread object
-    timestamp key
-    text
-    user
-    replies - Message object
+    returned object is a dict of timestamp to Thread object
+        timestamp key
+        Message
+        replies - List of timestamps
+        isReply - is it a reply or a message in the channel
     '''
     msg_dir = dict()
 
@@ -79,6 +79,9 @@ def build_msg_dir(fpaths, users, channels):
                     # add reply timestamps to the threads
                     replies = list()
                     if 'replies' in message:
+                        # It is ok to sort it right here because different channels
+                        # will have non-intersecting threads, and your exported slack
+                        # messages always keep track of al replies inside.
                         replies = [float(reply['ts']) for reply in message['replies']]
                         replies.sort()
                     msg_dir[float(message['ts'])] = Thread(ts_str, text, username, replies)
@@ -232,7 +235,7 @@ def register_commands():
 
 
 if __name__ == "__main__":
-    bot = commands.Bot(command_prefix="s2d!", intents=discord.Intents.all())
+    bot = commands.Bot(command_prefix=BOT_PREFIX, intents=discord.Intents.all())
     if TOKEN_VAR not in os.environ:
         print("Please set the token as an environment variable")
         exit(os.EX_CONFIG)
