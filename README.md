@@ -108,8 +108,6 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 
 ## ToDo
 
-- [ ] Threads
-- [ ] Multi-day threads
 - [ ] Test data
 - [ ] Pinned messages ?
 
