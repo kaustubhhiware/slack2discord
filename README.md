@@ -98,9 +98,9 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 
     iv. Message content intent.
 
-5. Under the `Bot permissions` box, select `Send Messages` permission.
+5. Under the `Bot permissions` box, select `Administrators` permission.
 6. Below the username, Click `Reset Token`. Copy this token, you're going to use this later.
-7. On the left side panel, Head to `OAuth2 > URL Generator`. Select `bot` scope, and then `Send Messages`. Copy the URL generated at the bottom.
+7. On the left side panel, Head to `OAuth2 > URL Generator`. Select `bot` scope, and then `Administrators`. Copy the URL generated at the bottom.
 8. Head to `OAuth2 > General`. Under `Default Authorization Link`, choose `Custom URL`, and paste the copied URL.
 9. Enter the copied URL into a new browser tab, and invite the bot into your Discord server.
 10. You should see the bot added on Discord, and we're all done with this step.
