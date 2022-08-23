@@ -1,6 +1,6 @@
 # slack2discord
 
-Migrate entire slack channels to discord, with thread support.
+Migrate entire slack channels to discord, with thread and pin support.
 
 ## Table of Contents
 
@@ -20,6 +20,8 @@ Migrate entire slack channels to discord, with thread support.
     a. Make all channels on Discord, as they were on Slack. This is useful for cross-referencing later.
 
     b. Invite all users from Slack to Discord, maintaining the names.
+
+    c. Add all custom added emojis in Slack to Discord as well. There are tools available to bulk download all emojis in your Slack workspace. Discord allows selecting multiple emojis to upload.
 
 4. Install dependencies.
 ```
@@ -98,7 +100,7 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 
     iv. Message content intent.
 
-5. Under the `Bot permissions` box, select `Administrators` permission.
+5. Under the `Bot permissions` box, select `Administrators` permission. This will allow us to send messages, create threads, send messages in threads, add emojis, pin messages, etc.
 6. Below the username, Click `Reset Token`. Copy this token, you're going to use this later.
 7. On the left side panel, Head to `OAuth2 > URL Generator`. Select `bot` scope, and then `Administrators`. Copy the URL generated at the bottom.
 8. Head to `OAuth2 > General`. Under `Default Authorization Link`, choose `Custom URL`, and paste the copied URL.
@@ -108,8 +110,13 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 
 ## ToDo
 
+- [ ] Links
+    - Discord doesn't allow hyperlinks in messages, but allows it in embeds [SO answer](https://stackoverflow.com/a/64529788). However, embeds don't have message methods - so need to find a good middle ground.
+- [ ] Emojis
+    - Discord requires sending the actual emoji, not the text equivalent like `:+1:`. Figure out how to do that.
+    - Further, custom emojis require being sent with its id. [FAQ](https://discordpy.readthedocs.io/en/stable/faq.html#how-can-i-add-a-reaction-to-a-message)
+- [ ] Images, files
 - [ ] Test data
-- [ ] Pinned messages ?
 
 ## Why
 

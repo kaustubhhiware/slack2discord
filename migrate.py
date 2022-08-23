@@ -5,6 +5,8 @@ import os
 from collections import OrderedDict
 import string
 import time
+import re
+from html import unescape
 from datetime import datetime
 import discord
 from discord.ext import commands
@@ -24,12 +26,12 @@ class Message:
 
 
 class Thread:
-    def __init__(self, timestamp, text, username, replyTimes):
+    def __init__(self, timestamp, text, username, replyTimes, emojis):
         self.timestamp = timestamp # mostly for debugging
         self.message = Message(timestamp, text, username)
         self.replyTimes = replyTimes
         self.isReply = False
-        # ToDo: emojis - need to have all slackmojis in discord
+        self.emojis = emojis # list of emojis
 
     def __repr__(self):
         return repr(self.message)
@@ -41,20 +43,22 @@ class Thread:
 
 def format_text(msg, users, channels):
     '''
-    add channel, user references
-    # ToDo: Format links, in lines, &&, > sign
+    add channel, user references. Format links, and encoded html
     '''
     for user_id, name in users.items():
         msg = msg.replace(f"<@{user_id}>", f"@{name}")
     for channel_id, name in channels.items():
         msg = msg.replace(f"<#{channel_id}>", f"#{name}")
+
+    # format links, punctuation marks
+    msg = re.sub(r"<(.+)\|(.+)>", "[\\2](\\1)", unescape(msg))
     return msg
 
 
 def build_msg_dir(fpaths, users, channels):
     '''
     returned object is a dict of timestamp to Thread object
-        timestamp key
+        timestamp (float)
         Message
         replies - List of timestamps
         isReply - is it a reply or a message in the channel
@@ -75,16 +79,21 @@ def build_msg_dir(fpaths, users, channels):
                     if not username:
                         username = message['user_profile']['real_name']
                     text = format_text(message['text'], users, channels)
+                    emojis = list()
+                    # does not export emoji count - kinda obvious if you think about it.
+                    if 'reactions' in message:
+                        for reaction in message['reactions']:
+                            emojis.append(reaction['name'])
 
                     # add reply timestamps to the threads
                     replies = list()
                     if 'replies' in message:
                         # It is ok to sort it right here because different channels
                         # will have non-intersecting threads, and your exported slack
-                        # messages always keep track of al replies inside.
+                        # messages always keep track of all replies inside.
                         replies = [float(reply['ts']) for reply in message['replies']]
                         replies.sort()
-                    msg_dir[float(message['ts'])] = Thread(ts_str, text, username, replies)
+                    msg_dir[float(message['ts'])] = Thread(ts_str, text, username, replies, emojis)
         except Exception as e:
             print(f"[ERROR] {e}")
 
@@ -99,6 +108,9 @@ def build_msg_dir(fpaths, users, channels):
 
 
 def get_users(dir):
+    '''
+    Map user id to user name
+    '''
     userfile = os.path.join(dir, 'users.json')
     if not os.path.exists(userfile):
         return None
@@ -119,6 +131,9 @@ def get_users(dir):
 
 
 def get_channels(dir):
+    '''
+    Map channel id to channel name
+    '''
     channelfile = os.path.join(dir, 'channels.json')
     if not os.path.exists(channelfile):
         return None
@@ -135,7 +150,33 @@ def get_channels(dir):
     return channelMap
 
 
+def get_pinned_messages(dir, channelNames):
+    '''
+    Get pinned messages for a few channels
+    '''
+    channelfile = os.path.join(dir, 'channels.json')
+    if not os.path.exists(channelfile):
+        return None
+
+    pinned = dict()
+    try:
+        with open(channelfile, encoding="utf-8") as f:
+            channels = json.load(f)
+            for channel in channels:
+                if channel['name'] not in channelNames:
+                    continue
+                for pin in channel['pins']:
+                    pinned[float(pin['id'])] = True
+    except Exception as e:
+        return None
+
+    return pinned
+
+
 def get_filepaths(dir, channelNames):
+    '''
+    Sends a list of json files in specified exported channels
+    '''
     fpaths = list()
 
     for channel in channelNames:
@@ -151,6 +192,33 @@ def get_filepaths(dir, channelNames):
             fpaths.append(os.path.join(channelDir, f))
 
     return fpaths
+
+
+async def d_pin_message(dMessage, ts, pinned_messages):
+    '''
+    pins a message if it should be
+    '''
+    if ts not in pinned_messages:
+        return
+    try:
+        await dMessage.pin()
+    except Exception as pe:
+        print(f"[ERROR] Pinnning message - {pe}")
+
+
+async def d_add_emojis(dMessage, emojis):
+    '''
+    Adds multiple emojis to a message
+    Not called anywhere, doesn't work as intended yet.
+    '''
+    if emojis is None:
+        return
+    for emoji  in emojis:
+        try:
+            # ToDo: convert str emoji :x: to emoji ❌
+            await dMessage.add_reaction(f":{emoji}:")
+        except Exception as ee:
+            print(f"[ERROR] Adding emoji {emoji} - {ee}")
 
 
 def register_commands():
@@ -206,31 +274,35 @@ def register_commands():
             await ctx.send(f"There aren't any valid files in the channels you mentioned.")
             return
 
-        # ToDo: pinned messages for selected channels
         # create map of timestamps that are pinned in this channel, if so pin them on addition.
+        pinned_messages = get_pinned_messages(dir, channelNames)
 
         # build a list of threads, build later
         msg_dir = build_msg_dir(filepaths, users, channels)
         for ts in msg_dir:
             if msg_dir[ts].isReply:
+                # replies will be printed in parent thread
                 continue
+
             dMessage = await ctx.send(msg_dir[ts].message)
-            # dMessage.add_reaction
-            # format message properly
-            # like [Doc](link) shared here 
-            # ToDo: emojis
+            await d_pin_message(dMessage, ts, pinned_messages)
+            # await d_add_emojis(dMessage, msg_dir[ts].emojis)
             time.sleep(THROTTLE_TIME_SECONDS)
 
             if len(msg_dir[ts].replyTimes) > 0:
                 # take first 20 chars after omitting punctuation
                 thread_name = str(msg_dir[ts].message.text).translate(str.maketrans('', '', string.punctuation))[:20]
+
                 # create a thread, use it immediately
                 dThread = await dMessage.create_thread(name=thread_name)
                 for replyTime in msg_dir[ts].replyTimes:
                     # if for some reason, a reply is not present in messages
                     if replyTime not in msg_dir:
                         continue
-                    await dThread.send(msg_dir[replyTime].message)
+
+                    dThreadMsg = await dThread.send(msg_dir[replyTime].message)
+                    await d_pin_message(dThreadMsg, replyTime, pinned_messages)
+                    # await d_add_emojis(dThreadMsg, msg_dir[replyTime].emojis)
                     time.sleep(THROTTLE_TIME_SECONDS)
 
 
