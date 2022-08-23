@@ -299,6 +299,8 @@ async def d_add_files(dMessage, files):
                 data = io.BytesIO(await resp.read())
                 dFiles.append(discord.File(data, slackfile.title))
 
+    if dFiles is None:
+        return
     try:
         await dMessage.edit(attachments=dFiles)
     except Exception as fe:
