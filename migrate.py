@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-from concurrent.futures import thread
-import json
-import os
 from collections import OrderedDict
+from datetime import datetime
+import io
+from html import unescape
+import json
+import re
+import shortuuid
 import string
 import time
-import re
-import io
+import textwrap
+import os
+
 import aiohttp
-from html import unescape
-from datetime import datetime
 import discord
 from discord.ext import commands
 
-THROTTLE_TIME_SECONDS = 1 # limit is 10,000 messages per 10 minutes
+# limit is 10,000 messages per 10 minutes
+# change this according to your server message size
+THROTTLE_TIME_SECONDS = 0.3
 TOKEN_VAR = "S2DTOKEN"
 BOT_PREFIX = "s2d!"
+# discord's message char limit is 2000
+# assuming 200 chars sufficient for name + date
+TEXT_LIMIT = 2000 - 200
+THREAD_NAME_LEN = 20
 
 class Message:
     def __init__(self, timestr, text, username):
@@ -34,16 +42,18 @@ class SlackFile:
 
 
 class Thread:
-    def __init__(self, timestamp, text, username, replyTimes, emojis, files):
+    def __init__(self, timestamp, texts, username, replyTimes, emojis, files):
         self.timestamp = timestamp # mostly for debugging
-        self.message = Message(timestamp, text, username)
+        self.messages = list()
+        for text in texts:
+            self.messages.append(Message(timestamp, text, username))
         self.replyTimes = replyTimes
         self.isReply = False
         self.emojis = emojis # list of emojis
         self.files = files # list of SlackFiles
 
     def __repr__(self):
-        return repr(self.message)
+        return repr(self.messages)
 
     def markAsReply(self):
         # this means don't print this message, add it in some thread
@@ -93,7 +103,15 @@ def build_msg_dir(fpaths, users, channels):
                         username = message['user_profile']['display_name']
                         if not username:
                             username = message['user_profile']['real_name']
-                    text = format_text(message['text'], users, channels)
+
+                    # discord's message char limit is 4K, but slack's is 40K
+                    # Break it down to smaller chunks
+                    # set an empty message, to be used for editing when file in thread
+                    texts = ["<empty>"]
+                    if 'text' in message and len(message['text']) != 0:
+                        texts = textwrap.wrap(message['text'], TEXT_LIMIT, break_long_words=False)
+                        texts = [format_text(txt, users, channels) for txt in texts]
+
                     emojis = list()
                     # does not export emoji count - kinda obvious if you think about it.
                     if 'reactions' in message:
@@ -120,7 +138,8 @@ def build_msg_dir(fpaths, users, channels):
                         replies = [float(reply['ts']) for reply in message['replies']]
                         replies.sort()
 
-                    msg_dir[float(message['ts'])] = Thread(ts_str, text, username, replies, emojis, files)
+                    print(f"Parsed {message['ts']}: {texts}, {files}")
+                    msg_dir[float(message['ts'])] = Thread(ts_str, texts, username, replies, emojis, files)
         except Exception as e:
             print(f"[ERROR] {e}")
 
@@ -323,28 +342,42 @@ def register_commands():
         # build a list of threads, build later
         msg_dir = build_msg_dir(filepaths, users, channels)
         for ts in msg_dir:
+            print(f"printing message at {ts}")
             if msg_dir[ts].isReply:
                 # replies will be printed in parent thread
                 continue
-
-            dMessage = await ctx.send(msg_dir[ts].message)
+            
+            # if the message is very long, only the last message is pinned.
+            # This also creates a thread at the very last message.
+            dMessage = discord.Message
+            for message in msg_dir[ts].messages:
+                dMessage = await ctx.send(message)
             await d_pin_message(dMessage, ts, pinned_messages)
             # await d_add_emojis(dMessage, msg_dir[ts].emojis)
             await d_add_files(dMessage, msg_dir[ts].files)
             time.sleep(THROTTLE_TIME_SECONDS)
 
             if len(msg_dir[ts].replyTimes) > 0:
-                # take first 20 chars after omitting punctuation
-                thread_name = str(msg_dir[ts].message.text).translate(str.maketrans('', '', string.punctuation))[:20]
+                # it's possible the message is empty (image), so make a random thread name
+                thread_name = shortuuid.ShortUUID().random(length=THREAD_NAME_LEN)
+                # check if thread name is possible
+                if len(msg_dir[ts].messages) > 0:
+                    thread_name = msg_dir[ts].messages[0]
+                    # take first 20 chars after omitting punctuation
+                    thread_name = str(thread_name).translate(str.maketrans('', '', string.punctuation))[:THREAD_NAME_LEN]
 
                 # create a thread, use it immediately
                 dThread = await dMessage.create_thread(name=thread_name)
                 for replyTime in msg_dir[ts].replyTimes:
+                    print(f"\tprinting reply at {replyTime}")
                     # if for some reason, a reply is not present in messages
                     if replyTime not in msg_dir:
                         continue
 
-                    dThreadMsg = await dThread.send(msg_dir[replyTime].message)
+                    dThreadMsg = discord.Message
+                    for message in msg_dir[replyTime].messages:
+                        print(f"\tReply Message: {msg_dir[replyTime]}")
+                        dThreadMsg = await dThread.send(message)
                     await d_pin_message(dThreadMsg, replyTime, pinned_messages)
                     # await d_add_emojis(dThreadMsg, msg_dir[replyTime].emojis)
                     await d_add_files(dThreadMsg, msg_dir[replyTime].files)
