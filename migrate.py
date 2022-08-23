@@ -89,10 +89,10 @@ def build_msg_dir(fpaths, users, channels):
                     # Apr 10, 2020 at 04:45 AM
                     ts_str = datetime.fromtimestamp(float(message['ts'])).strftime('%b %d, %Y at %I:%M %p')
                     username = "upload" # file upload
-                    if not username:
+                    if 'user_profile' in message:
                         username = message['user_profile']['display_name']
-                    if not username:
-                        username = message['user_profile']['real_name']
+                        if not username:
+                            username = message['user_profile']['real_name']
                     text = format_text(message['text'], users, channels)
                     emojis = list()
                     # does not export emoji count - kinda obvious if you think about it.

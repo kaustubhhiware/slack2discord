@@ -116,6 +116,7 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
     - Discord requires sending the actual emoji, not the text equivalent like `:+1:`. Figure out how to do that.
     - Further, custom emojis require being sent with its id. [FAQ](https://discordpy.readthedocs.io/en/stable/faq.html#how-can-i-add-a-reaction-to-a-message)
 - [ ] Test data
+- [ ] Bot messages ?
 
 ## Why
 
