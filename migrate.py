@@ -13,7 +13,7 @@ from datetime import datetime
 import discord
 from discord.ext import commands
 
-THROTTLE_TIME_SECONDS = 1
+THROTTLE_TIME_SECONDS = 1 # limit is 10,000 messages per 10 minutes
 TOKEN_VAR = "S2DTOKEN"
 BOT_PREFIX = "s2d!"
 
@@ -103,7 +103,13 @@ def build_msg_dir(fpaths, users, channels):
                     files = list() # list of slackFiles
                     if 'files' in message:
                         for slackfile in message['files']:
-                            files.append(SlackFile(slackfile['title'], slackfile['url_private_download'])) # or url_private_download
+                            fname = slackfile['title']
+                            if not fname:
+                                fname = slackfile['name']
+                            # ensure text files render correctly
+                            if slackfile['filetype'] == "text":
+                                fname += ".txt"
+                            files.append(SlackFile(fname, slackfile['url_private_download']))
 
                     # add reply timestamps to the threads
                     replies = list()
@@ -352,4 +358,4 @@ if __name__ == "__main__":
         exit(os.EX_CONFIG)
 
     register_commands()
-    bot.run(os.environ.get('S2DTOKEN'))
+    bot.run(os.environ.get(TOKEN_VAR))
