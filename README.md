@@ -110,7 +110,7 @@ Disclaimer: If you've never created a discord bot before, this will test your pa
 
 ## ToDo
 
-- [ ] Links
+- [ ] Link formatting
     - Discord doesn't allow hyperlinks in messages, but allows it in embeds [SO answer](https://stackoverflow.com/a/64529788). However, embeds don't have message methods - so need to find a good middle ground.
 - [ ] Emojis
     - Discord requires sending the actual emoji, not the text equivalent like `:+1:`. Figure out how to do that.
