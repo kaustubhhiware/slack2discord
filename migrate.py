@@ -17,7 +17,7 @@ from discord.ext import commands
 
 # limit is 10,000 messages per 10 minutes
 # change this according to your slack workspace total messages
-THROTTLE_TIME_SECONDS = 0.3
+THROTTLE_TIME_SECONDS = 0.1
 FILE_DOWNLOAD_TIMEOUT_SECONDS = 60
 TOKEN_VAR = "S2DTOKEN"
 BOT_PREFIX = "s2d!"
@@ -46,15 +46,15 @@ class SlackFile:
 
 
 class Thread:
-    def __init__(self, timestamp, texts, username, replyTimes, emojis, files):
+    def __init__(self, timestamp, texts, username, reply_times, emojis, files):
         self.timestamp = timestamp # mostly for debugging
         self.messages = list()
         for text in texts:
             self.messages.append(Message(timestamp, text, username))
-        self.replyTimes = replyTimes
+        self.reply_times = reply_times
         self.isReply = False
         self.emojis = emojis # list of emojis
-        self.files = files # list of SlackFiles
+        self.files = files # list of slackfiles
 
     def __repr__(self):
         return repr(self.messages)
@@ -96,7 +96,8 @@ def build_msg_dir(fpaths, users, channels):
                 for message in json.load(f):
                     msg_check = all(key in message for key in ['ts', 'text', 'user_profile'])
                     file_check = all(key in message for key in ['ts', 'text', 'files'])
-                    if not msg_check and not file_check :
+                    slackbot_check = all(key in message for key in ['ts', 'text', 'user']) and message['user'] == 'USLACKBOT'
+                    if not msg_check and not file_check and not slackbot_check:
                         print(f"[WARNING] username, timestamp, or text/file missing")
                         continue
 
@@ -107,6 +108,8 @@ def build_msg_dir(fpaths, users, channels):
                         username = message['user_profile']['display_name'] or message['user_profile']['real_name']
                     elif message['user'] in users:
                         username = users[message['user']]
+                    elif slackbot_check:
+                        username = 'slackbot'
                     # discord's message char limit is 4K, but slack's is 40K
                     # Break it down to smaller chunks
                     # set an empty message, to be used for editing when file in thread
@@ -124,13 +127,17 @@ def build_msg_dir(fpaths, users, channels):
                         for reaction in message['reactions']:
                             emojis.append(reaction['name'])
 
-                    files = list() # list of slackFiles
+
+                    files = list() # list of slackfiles
                     if 'files' in message:
                         for slackfile in message['files']:
+                            # if file is deleted, skip
+                            if 'url_private_download' not in slackfile:
+                                print(f"[WARNING] file url not available, skipping - {message['ts']}")
+                                continue
                             fname = slackfile['title'] if 'title' in slackfile else slackfile['name']
                             # ensure text files render correctly
                             files.append(SlackFile(fname, slackfile['url_private_download']))
-
                     # add reply timestamps to the threads
                     replies = list()
                     if 'replies' in message:
@@ -147,7 +154,7 @@ def build_msg_dir(fpaths, users, channels):
 
     # mark messages as thread starters or thread messages
     for timestamp in msg_dir:
-        for reply in msg_dir[timestamp].replyTimes:
+        for reply in msg_dir[timestamp].reply_times:
             if reply in msg_dir:
                 msg_dir[reply].markAsReply()
 
@@ -195,7 +202,7 @@ def get_channels(dir):
     return channelMap
 
 
-def get_pinned_messages(dir, channelNames):
+def get_pinned_messages(dir, channel_names):
     '''
     Get pinned messages for a few channels
     '''
@@ -208,7 +215,7 @@ def get_pinned_messages(dir, channelNames):
         with open(channelfile, encoding="utf-8") as f:
             channels = json.load(f)
             for channel in channels:
-                if channel['name'] not in channelNames:
+                if channel['name'] not in channel_names:
                     continue
                 for pin in channel['pins']:
                     pinned[float(pin['id'])] = True
@@ -218,23 +225,23 @@ def get_pinned_messages(dir, channelNames):
     return pinned
 
 
-def get_filepaths(dir, channelNames):
+def get_filepaths(dir, channel_names):
     '''
     Sends a list of json files in specified exported channels
     '''
     fpaths = list()
 
-    for channel in channelNames:
-        channelDir = os.path.join(dir, channel)
-        if not os.path.exists(channelDir) or not os.path.isdir(channelDir):
+    for channel in channel_names:
+        channel_dir = os.path.join(dir, channel)
+        if not os.path.exists(channel_dir) or not os.path.isdir(channel_dir):
             # redundant check
             print(f"{channel} channel directory doesn't exist!")
             continue
         
-        for f in os.listdir(channelDir):
+        for f in os.listdir(channel_dir):
             if not f.endswith('.json'):
                 continue
-            fpaths.append(os.path.join(channelDir, f))
+            fpaths.append(os.path.join(channel_dir, f))
 
     return fpaths
 
@@ -277,20 +284,20 @@ async def d_add_files(dMessage, files):
     timeout = aiohttp.ClientTimeout(total=FILE_DOWNLOAD_TIMEOUT_SECONDS)
 
     dFiles = list()
-    for slackFile in files:
+    for slackfile in files:
         async with aiohttp.ClientSession() as session:
-            async with session.get(slackFile.url, timeout = timeout) as resp:
+            async with session.get(slackfile.url, timeout = timeout) as resp:
                 if resp.status != 200:
-                    print(f"[WARNING] Could not download file {slackFile.title}")
+                    print(f"[WARNING] Could not download file {slackfile.title}")
                     await dMessage.edit(content=dMessage.content + "\n[slack2discord] file download failed")
                     continue
                 if resp.content_length is not None and resp.content_length > MAX_FILE_SIZE_BYTES:
-                    print(f"[WARNING] File too big! Not sending to discord - {slackFile.title}")
+                    print(f"[WARNING] File too big! Not sending to discord - {slackfile.title}")
                     await dMessage.edit(content=dMessage.content + "\n[slack2discord] file too big")
                     continue
 
                 data = io.BytesIO(await resp.read())
-                dFiles.append(discord.File(data, slackFile.title))
+                dFiles.append(discord.File(data, slackfile.title))
 
     try:
         await dMessage.edit(attachments=dFiles)
@@ -323,12 +330,12 @@ def register_commands():
             await ctx.send(f"Directory {dir} does not exist! Use a valid path.")
             return
 
-        channelNames = list(pathArg)[1:]
+        channel_names = list(pathArg)[1:]
         invalid_channels = list()
         # if any channel does not exist, throw an error and do nothing
-        for channel in channelNames:
-            channelDir = os.path.join(dir, channel)
-            if not os.path.exists(channelDir) or not os.path.isdir(channelDir):
+        for channel in channel_names:
+            channel_dir = os.path.join(dir, channel)
+            if not os.path.exists(channel_dir) or not os.path.isdir(channel_dir):
                 invalid_channels.append(channel)
 
         if len(invalid_channels) != 0:
@@ -347,13 +354,13 @@ def register_commands():
             await ctx.send(f"Channels don't seem right. Check channels.json in your directory")
             return
 
-        filepaths = get_filepaths(dir, channelNames)
+        filepaths = get_filepaths(dir, channel_names)
         if not filepaths:
             await ctx.send(f"There aren't any valid files in the channels you mentioned.")
             return
 
         # create map of timestamps that are pinned in this channel, if so pin them on addition.
-        pinned_messages = get_pinned_messages(dir, channelNames)
+        pinned_messages = get_pinned_messages(dir, channel_names)
 
         # build a list of threads, build later
         msg_dir = build_msg_dir(filepaths, users, channels)
@@ -373,7 +380,7 @@ def register_commands():
             await d_add_files(dMessage, msg_dir[ts].files)
             time.sleep(THROTTLE_TIME_SECONDS)
 
-            if len(msg_dir[ts].replyTimes) > 0:
+            if len(msg_dir[ts].reply_times) > 0:
                 # it's possible the message is empty (image), so make a random thread name
                 thread_name = shortuuid.ShortUUID().random(length=THREAD_NAME_LEN)
                 # check if thread name is possible
@@ -384,7 +391,7 @@ def register_commands():
 
                 # create a thread, use it immediately
                 dThread = await dMessage.create_thread(name=thread_name)
-                for replyTime in msg_dir[ts].replyTimes:
+                for replyTime in msg_dir[ts].reply_times:
                     print(f"\tmoving reply at {replyTime}")
                     # if for some reason, a reply is not present in messages
                     if replyTime not in msg_dir:
