@@ -1,6 +1,6 @@
 # slack2discord
 
-Migrate entire slack channels to discord, with thread and pin support.
+Migrate entire slack channels to discord, with thread, pins and file support.
 
 ## Table of Contents
 

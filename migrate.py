@@ -6,6 +6,8 @@ from collections import OrderedDict
 import string
 import time
 import re
+import io
+import aiohttp
 from html import unescape
 from datetime import datetime
 import discord
@@ -25,13 +27,20 @@ class Message:
         return f"**{self.username}** *{self.timestr}*\n{self.text}"
 
 
+class SlackFile:
+    def __init__(self, title, url):
+        self.title = title
+        self.url = url
+
+
 class Thread:
-    def __init__(self, timestamp, text, username, replyTimes, emojis):
+    def __init__(self, timestamp, text, username, replyTimes, emojis, files):
         self.timestamp = timestamp # mostly for debugging
         self.message = Message(timestamp, text, username)
         self.replyTimes = replyTimes
         self.isReply = False
         self.emojis = emojis # list of emojis
+        self.files = files # list of SlackFiles
 
     def __repr__(self):
         return repr(self.message)
@@ -62,6 +71,8 @@ def build_msg_dir(fpaths, users, channels):
         Message
         replies - List of timestamps
         isReply - is it a reply or a message in the channel
+        emojis
+        files - list of file urls
     '''
     msg_dir = dict()
 
@@ -69,13 +80,17 @@ def build_msg_dir(fpaths, users, channels):
         try:
             with open(file, encoding="utf-8") as f:
                 for message in json.load(f):
-                    if not all(key in message for key in ['ts', 'text', 'user_profile']):
-                        print(f"[WARNING] username, timestamp, or text missing")
+                    msg_check = all(key in message for key in ['ts', 'text', 'user_profile'])
+                    file_check = all(key in message for key in ['ts', 'text', 'files'])
+                    if not msg_check and not file_check :
+                        print(f"[WARNING] username, timestamp, or text/file missing")
                         continue
 
                     # Apr 10, 2020 at 04:45 AM
                     ts_str = datetime.fromtimestamp(float(message['ts'])).strftime('%b %d, %Y at %I:%M %p')
-                    username = message['user_profile']['display_name']
+                    username = "upload" # file upload
+                    if not username:
+                        username = message['user_profile']['display_name']
                     if not username:
                         username = message['user_profile']['real_name']
                     text = format_text(message['text'], users, channels)
@@ -85,6 +100,11 @@ def build_msg_dir(fpaths, users, channels):
                         for reaction in message['reactions']:
                             emojis.append(reaction['name'])
 
+                    files = list() # list of slackFiles
+                    if 'files' in message:
+                        for slackfile in message['files']:
+                            files.append(SlackFile(slackfile['title'], slackfile['url_private_download'])) # or url_private_download
+
                     # add reply timestamps to the threads
                     replies = list()
                     if 'replies' in message:
@@ -93,7 +113,8 @@ def build_msg_dir(fpaths, users, channels):
                         # messages always keep track of all replies inside.
                         replies = [float(reply['ts']) for reply in message['replies']]
                         replies.sort()
-                    msg_dir[float(message['ts'])] = Thread(ts_str, text, username, replies, emojis)
+
+                    msg_dir[float(message['ts'])] = Thread(ts_str, text, username, replies, emojis, files)
         except Exception as e:
             print(f"[ERROR] {e}")
 
@@ -220,6 +241,22 @@ async def d_add_emojis(dMessage, emojis):
         except Exception as ee:
             print(f"[ERROR] Adding emoji {emoji} - {ee}")
 
+async def d_add_files(dMessage, files):
+    '''
+    Add files to messages
+    '''
+    if files is None:
+        return
+
+    for slackFile in files:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(slackFile.url) as resp:
+                if resp.status != 200:
+                    print(f"[WARNING] Could not download file {slackFile.title}")
+                    continue
+                data = io.BytesIO(await resp.read())
+                await dMessage.add_files(discord.File(data, slackFile.title))
+
 
 def register_commands():
     @bot.command(pass_context=True)
@@ -287,6 +324,7 @@ def register_commands():
             dMessage = await ctx.send(msg_dir[ts].message)
             await d_pin_message(dMessage, ts, pinned_messages)
             # await d_add_emojis(dMessage, msg_dir[ts].emojis)
+            await d_add_files(dMessage, msg_dir[ts].files)
             time.sleep(THROTTLE_TIME_SECONDS)
 
             if len(msg_dir[ts].replyTimes) > 0:
@@ -303,6 +341,7 @@ def register_commands():
                     dThreadMsg = await dThread.send(msg_dir[replyTime].message)
                     await d_pin_message(dThreadMsg, replyTime, pinned_messages)
                     # await d_add_emojis(dThreadMsg, msg_dir[replyTime].emojis)
+                    await d_add_files(dThreadMsg, msg_dir[replyTime].files)
                     time.sleep(THROTTLE_TIME_SECONDS)
 
 
